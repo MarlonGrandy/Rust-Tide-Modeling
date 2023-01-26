@@ -1,0 +1,215 @@
+This script is the Tidymodels workflow for experimenting with multiple model types trained to predict rust tide occurrences on the Narragansett Bay Long Term Time Series. 
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+source(get_path(SCRIPT_DIR, "NarragansettLong", "NarLongDF.R"))
+```
+
+Reading in required packages
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(themis)
+library(vip)
+library(unpivotr)
+```
+
+Creating the dataset for modeling with lags and factorizing the count values
+```{r}
+set.seed(15)
+data <- count_env |>
+  mutate(woy = week(Date)) |>
+  mutate(flownolag = flow_mean) |>
+  mutate(count = as.factor(
+    ifelse(`count` >= 5000, 'high', "low" )))|>
+  mutate_at(c("count", "id", "woy"),lead, n = 1) |>
+  mutate_at(c("Surface Temp"), lag, n = 1) |>
+  mutate_at(c("Surface Salinity"), lag, n = 1) |>
+  mutate_at(c("TotPAR"), lag, n = 0) |>
+  mutate_at(c("flow_mean"), lag, n = 2) |>
+  mutate_at(c("WSpd"), lag, n = 3) |>
+  mutate_at(c("Wdir"), lag, n = 3) |>
+  mutate_at(c("BP"), lag, n = 0) 
+```
+
+Creating training and testing sets with desired covariates
+```{r}
+#splitting training and testing data sets
+set.seed(15)
+split <- initial_time_split(data, prop = 9/10, lag = 0)
+train_raw <- training(split)
+test_raw <- testing(split)
+
+test <- test_raw |>
+  dplyr::select( "count", "Surface Temp", "TotPAR", "flow_mean", "Wdir", "Surface Salinity")|>
+  tidyr::drop_na()
+
+train <- train_raw |>
+  dplyr::select( "count" ,"Surface Temp", "TotPAR", "flow_mean", "Wdir", "Surface Salinity")|>
+  tidyr::drop_na()
+```
+
+Defining the models to test
+```{r}
+mlnn <- mlp(mode = "classification", engine = "brulee", hidden_units = 4, epochs = 100, dropout = .05, activation = "relu", learn_rate = .002) 
+rf <- rand_forest(mode = "classification", engine = "ranger", trees = 2000, mtry = 3) 
+bag <- bag_tree(
+  mode = "classification",
+  cost_complexity = 0,
+  tree_depth = NULL,
+  min_n = 2,
+  class_cost = NULL,
+  engine = "rpart"
+)
+```
+
+Defining evaluation metrics and folds for cross validations 
+```{r}
+resamples = vfold_cv(train, v = 5, strata = count)
+
+model_metrics <- yardstick::metric_set( yardstick::accuracy,  yardstick::sensitivity,  yardstick::specificity, yardstick::precision,  yardstick::recall,  yardstick::f_meas)
+```
+
+Creating processing recipe 
+```{r}
+set.seed(15)
+rust_recipe <- train |> recipe(count ~ ., data = train)  |>
+  step_log(TotPAR, signed = TRUE)|>
+  step_log(flow_mean)|>
+  step_BoxCox() |>
+  step_normalize(all_numeric_predictors()) |>
+  step_dummy(all_nominal_predictors()) |>
+  step_upsample(count, over_ratio = .35) 
+  
+```
+
+Creating a workflow
+```{r}
+bal_wf <-
+  workflow() |>
+  add_recipe(rust_recipe) |>
+  add_model(mlnn)
+```
+
+
+Tuning model
+```{r eval=FALSE, include=FALSE}
+
+  mlp_spec <-
+    mlp(hidden_units = tune(), epochs = tune()) |>
+    set_mode("classification")
+
+
+ames_mlp_itr <-
+    mlp_spec %>%
+    tune_bayes(
+      rust_recipe,
+      resamples = resamples,
+      initial = 20,
+      iter = 4,
+      control = control_bayes(save_pred = TRUE)
+    )
+
+
+```
+
+Validation set testing 
+```{r}
+set.seed(15)
+bal_rs <- 
+  bal_wf |>
+  fit_resamples(
+    resamples = resamples,
+    control = control_resamples(save_pred = TRUE)) 
+
+rs_confusionmatrix <- conf_mat_resampled(bal_rs)
+
+rs_metrics <-   fit_resamples(bal_wf,
+    resamples = resamples, metrics = model_metrics) |>
+  collect_metrics()
+```
+
+Fitting,predicting, and getting model metrics
+```{r}
+set.seed(15)
+fit <- fit(bal_wf, data = train)
+pred <- augment(fit, test)
+dat_met <- metrics(pred, truth = `count`, estimate=.pred_class)
+```
+
+Creating a confusion matrix for test set results 
+```{r}
+confusion_matrix_test <- conf_mat(pred, truth = count, estimate = .pred_class)
+plt <- as.data.frame(confusion_matrix_test$table)
+confusionmat <- ggplot(plt, aes(Prediction,Truth, fill= Freq)) +
+  geom_tile() + geom_text(aes(label=Freq)) +
+  scale_fill_gradient(low="white", high="#009194") +
+  labs(x = "Prediction",y = "Truth") +
+  scale_x_discrete(labels=c("High","Low")) +
+  scale_y_discrete(labels=c("High","Low"))
+```
+
+Graphing variable importance
+```{r eval=FALSE, include=FALSE}
+varimp <- fit |>
+  extract_fit_parsnip() |>
+  vip(type = "garson")
+```
+
+Making plots of model results and model structure
+```{r}
+set.seed(15)
+data_conf <- count_env |>
+  mutate(flownolag = flow_mean) |>
+  mutate_at(c("count", "id"),lead, n = 1) |>
+  mutate_at(c("Surface Temp"), lag, n = 1) |>
+  mutate_at(c("Surface Salinity"), lag, n = 1) |>
+  mutate_at(c("TotPAR"), lag, n = 0) |>
+  mutate_at(c("flow_mean"), lag, n = 2) |>
+  mutate_at(c("WSpd"), lag, n = 3) |>
+  mutate_at(c("Wdir"), lag, n = 3) |>
+  mutate_at(c("BP"), lag, n = 0)
+
+split <- initial_time_split(data_conf, prop = 9/10, lag = 0)
+confcounts <- testing(split)
+
+
+countcomp <- confcounts |>
+  dplyr::select( "count", "Surface Temp", "TotPAR", "flow_mean","Wdir", "Date", "Surface Salinity") |>
+  drop_na() 
+
+
+countcomp <- countcomp |>
+  cbind(pred$.pred_high) 
+  for(i in 1:length(countcomp$count)){
+    if(countcomp$count[i]>0){
+      countcomp$count[i] = log10(countcomp$count[i])
+    }
+  }
+
+
+ggplot(data = countcomp) +
+  geom_jitter(aes(x = pred$.pred_high, y = count), width = .01, color = "blue") +
+  geom_hline(yintercept=log10(5000), linetype='dashed') +
+  geom_vline(xintercept = .5, linetype = 'dashed') +
+  xlab("Predicted Probability of \"High\" Class") +
+  ylab("Log True Abundance (log(Cells/L))") +
+  ggtitle("Confusion Matrix")+ 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplot(data = countcomp, aes(x = Date, y = pred$.pred_high)) +
+  geom_point()
+#response curves
+lmfit = lm(log(countcomp$`Surface Temp`) ~ countcomp$`pred$.pred_high`,data=countcomp)
+A = coef(lmfit)[1]
+B = coef(lmfit)[2]
+
+sstres <- ggplot(data = countcomp, aes(x = `Surface Temp`, y = `pred$.pred_high`)) +
+  geom_point() +
+  ylab("High Prediction Percentage")
+
+library(devtools)
+source_url('https://gist.githubusercontent.com/fawda123/7471137/raw/466c1474d0a505ff044412703516c34f1a4684a5/nnet_plot_update.r')
+
+plot.nnet(extract_model(fit), y.lab = "Binary Output", x.lab = c("Surface Temperature", "Total PAR", "Mean River Flow", "Surface Salinity", "Wind Direction"), bias = FALSE, cex.val = 1.25, circle.cex = 6, line.stag = .0001)
+```
+
