@@ -10,7 +10,6 @@ Margalefidinium polykrikoides blooms (rust tide) cause mortality and stunted gro
 
 To get started, clone the repository and run the setup.R file in the Project directory. This file will load all essential libraries and set directory paths to be used in the rest of the project files. The project is organized into three primary sub-folders: 'Project Data', 'scripts', and 'r'. The Project Data folder holds all the data that was used in the project along with a README file with links to the data sources. The scripts folder holds scripts for visualizing various data sources and scripts creating model pipelines for a vanilla neural network and Maxent spatial distribution model. The r folder holds functions that were used multiple times throughout the project. Now, you can play around and run the various scripts in the scripts directory. 
 
-## Key Scripts
 
 ## Data Sources
 
