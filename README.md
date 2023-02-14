@@ -22,7 +22,7 @@ To get started, clone the repository and run the setup.R file in the Project dir
 - [daymet](https://daymet.ornl.gov/web_services.html#single_pixel_data_extraction)
 - [RNOAA](https://docs.ropensci.org/rnoaa/)
 - [depth_data](https://www.ncei.noaa.gov/access/metadata/landing-page/bin/iso?id=gov.noaa.ngdc.mgg.dem:narragansett_bay_m020_30m)
-- [DEMCountData](David Borkman and DEM)
+- DEMCountData: David Borkman and RI DEM
 - [LeaseData](https://ridemgis.maps.arcgis.com/apps/webappviewer/index.html?id=8beb98d758f14265a84d69758d96742f)
 - [MUR](https://podaac.jpl.nasa.gov/MEaSUREs-MUR)
 - [NOAAStorm](https://www.ncdc.noaa.gov/stormevents/)
